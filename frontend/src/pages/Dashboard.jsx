@@ -1,41 +1,42 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../App'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
-} from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import Icon from '../components/Icon'
 import Badge from '../components/Badge'
 import Loader from '../components/Loader'
-
-const HEALTH_EMOJI = { Healthy: '🥗', Moderate: '⚠️', Unhealthy: '🚨' }
-const HEALTH_LABEL_STYLE = {
-  Healthy:   { color: '#15803D', bg: '#DCFCE7' },
-  Moderate:  { color: '#92400E', bg: '#FEF3C7' },
-  Unhealthy: { color: '#B91C1C', bg: '#FEE2E2' },
-}
-
-const DEMO_FOODS = [
-  ['🍜 Maggi',            'maggi'],
-  ['🧈 Amul Butter',      'amul_butter'],
-  ['🥨 Haldiram\'s Bhujia','haldirams'],
-  ['🍪 Parle-G',          'parle_g'],
-  ['🫙 Aashirvaad Atta',  'atta'],
-  ['🥛 Mother Dairy Dahi','dahi'],
-]
+import { normalizeStats } from '../lib/normalize'
+import {
+  Button, Grade, CountUp, SplitBar, Empty, ProductChip, ChartTip, DEMO_FOODS, HEALTH,
+} from '../components/ui'
 
 function timeAgo(dateStr) {
   if (!dateStr) return ''
-  const now = new Date()
-  const d = new Date(dateStr)
-  const diffMs = now - d
-  const mins = Math.floor(diffMs / 60000)
+  const mins = Math.floor((new Date() - new Date(dateStr)) / 60000)
   if (mins < 1) return 'Just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 60) return `${mins} min ago`
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
+  if (hrs < 24) return `${hrs} h ago`
   const days = Math.floor(hrs / 24)
-  if (days === 1) return 'Yesterday'
-  return `${days}d ago`
+  return days === 1 ? 'Yesterday' : `${days} days ago`
+}
+
+function SearchBar({ value, onChange, onSubmit }) {
+  return (
+    <form onSubmit={onSubmit} className="search-xl" role="search">
+      <div className="input-wrap">
+        <Icon name="search" size={19} />
+        <input
+          className="input"
+          placeholder="Search a product or type a barcode"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          aria-label="Search food products"
+        />
+      </div>
+      <Button type="submit" variant="primary" iconRight="arrowRight">Search</Button>
+    </form>
+  )
 }
 
 export default function Dashboard() {
@@ -45,6 +46,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [recentScans, setRecentScans] = useState([])
   const [loading, setLoading] = useState(true)
+  const [demoLoading, setDemoLoading] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -54,7 +56,7 @@ export default function Dashboard() {
       fetch('/api/scans/history?limit=8').then(r => r.json()).catch(() => null),
     ]).then(([statsData, historyData]) => {
       if (!mounted) return
-      setStats(statsData)
+      setStats(normalizeStats(statsData))
       setRecentScans(historyData?.scans || historyData || [])
       setLoading(false)
     })
@@ -63,278 +65,200 @@ export default function Dashboard() {
 
   function handleSearch(e) {
     e.preventDefault()
-    if (searchQ.trim()) {
-      navigate('/scans?q=' + encodeURIComponent(searchQ.trim()))
-    }
+    if (searchQ.trim()) navigate('/scans?q=' + encodeURIComponent(searchQ.trim()))
   }
 
   function handleDemoClick(key) {
+    setDemoLoading(key)
     fetch(`/api/demo/${key}`)
       .then(r => r.json())
       .then(p => { setSelectedProduct(p); navigate('/scans') })
       .catch(() => {})
+      .finally(() => setDemoLoading(null))
   }
 
   const totalScans = stats?.total_scans || 0
   const healthyPct = stats?.healthy_percent || 0
   const moderatePct = stats?.moderate_percent || 0
   const unhealthyPct = stats?.unhealthy_percent || 0
-  const weeklyData = (stats?.weekly || []).map(w => ({
-    day: w.day || w.label || '',
-    val: w.score || w.count || 0,
-  }))
-  const avgScore = weeklyData.length > 0
-    ? Math.round(weeklyData.reduce((s, w) => s + w.val, 0) / weeklyData.length)
-    : 0
-  const maxVal = weeklyData.length > 0 ? Math.max(...weeklyData.map(w => w.val)) : 0
+  const weeklyData = (stats?.weekly || []).map(w => ({ day: w.day || w.label || '', val: w.score || w.count || 0 }))
+  const activeDays = weeklyData.filter(w => w.val > 0)
+  const avgScore = activeDays.length ? Math.round(activeDays.reduce((s, w) => s + w.val, 0) / activeDays.length) : 0
+  const maxVal = weeklyData.length ? Math.max(...weeklyData.map(w => w.val)) : 0
   const maxIdx = weeklyData.findIndex(w => w.val === maxVal)
-
   const isEmpty = totalScans === 0 && recentScans.length === 0
+
+  const demoRow = (
+    <div className="row-wrap">
+      {DEMO_FOODS.map(d => (
+        <ProductChip key={d.key} label={d.label} loading={demoLoading === d.key} onClick={() => handleDemoClick(d.key)} />
+      ))}
+    </div>
+  )
 
   if (loading) {
     return (
-      <div>
-        <div className="page-title">Dashboard</div>
-        <Loader text="Loading your dashboard…" />
-      </div>
+      <>
+        <header className="page-head"><h1 className="display h1">Dashboard</h1></header>
+        <Loader text="Loading your scans…" />
+      </>
     )
   }
 
   return (
-    <div>
-      {/* Top Bar */}
-      <div className="top-bar">
-        <form onSubmit={handleSearch} className="search-bar-wrap" style={{ flex: 1, maxWidth: 520 }}>
-          <input
-            className="input-field"
-            placeholder="🔍  Quick Scan or Search Food Item..."
-            value={searchQ}
-            onChange={e => setSearchQ(e.target.value)}
-          />
-        </form>
-      </div>
+    <>
+      <header className="page-head">
+        <div>
+          <h1 className="display h1">
+            {isEmpty ? 'What are you eating today?' : 'Dashboard'}
+          </h1>
+          <p>
+            {isEmpty
+              ? 'Search a packaged food or scan its label. NutriLens grades it, flags the additives and suggests better swaps.'
+              : <>You've checked <b>{totalScans} products</b> so far. {healthyPct}% of them came out healthy.</>}
+          </p>
+        </div>
+      </header>
 
-      <div className="page-title">Dashboard</div>
+      <SearchBar value={searchQ} onChange={setSearchQ} onSubmit={handleSearch} />
+
       {isEmpty ? (
-        <div className="page-sub">Welcome to NutriLens AI! Get started by scanning your first product.</div>
-      ) : (
-        <div className="page-sub">
-          You've scanned <b style={{ color: '#1B6B3A' }}>{totalScans} products</b> — {healthyPct}% are healthy.
-        </div>
-      )}
-
-      {/* Empty State */}
-      {isEmpty && (
-        <div style={{ marginBottom: '2rem' }}>
-          <div className="nl-card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🔬</div>
-            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '1.2rem', color: '#111827', marginBottom: '0.5rem' }}>
-              No scans yet!
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#6B7280', marginBottom: '1.5rem', maxWidth: 440, margin: '0 auto 1.5rem auto' }}>
-              Start by searching a product or uploading a food label. Try one of the demo products below!
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button className="btn-primary" onClick={() => navigate('/scans')}>📷 Scan New Product</button>
-              <button className="btn" onClick={() => navigate('/chat')}>💬 Ask AI Advisor</button>
-              <button className="btn" onClick={() => navigate('/diet-plan')}>🥗 Diet Plan</button>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '1.5rem' }}>
-            <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#374151', marginBottom: '0.75rem' }}>🇮🇳 Try popular Indian products:</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-              {DEMO_FOODS.map(([label, key]) => (
-                <button key={key} className="btn" onClick={() => handleDemoClick(key)}>{label}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Data View */}
-      {!isEmpty && (
         <>
-          {/* Row 1: Chart + Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1rem', marginBottom: '1.5rem' }}>
-            {/* Weekly Chart */}
-            <div className="nl-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+          <div className="section-title">
+            <h2 className="h3">Try a popular Indian product</h2>
+          </div>
+          {demoRow}
+          <div className="mt-lg">
+            <Empty
+              icon="label"
+              title="No scans yet"
+              actions={<>
+                <Button variant="primary" icon="camera" onClick={() => navigate('/scans')}>Scan a label</Button>
+                <Button icon="chat" onClick={() => navigate('/chat')}>Ask the advisor</Button>
+                <Button variant="ghost" icon="plan" onClick={() => navigate('/diet-plan')}>Build a diet plan</Button>
+              </>}
+            >
+              Every product you check shows up here with its grade, calories and a weekly health trend.
+            </Empty>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid g-main mt-lg">
+            <section className="panel">
+              <div className="panel-head">
                 <div>
-                  <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '1.05rem', color: '#111827' }}>
-                    Weekly Nutritional Health
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#9CA3AF', marginTop: '2px' }}>
-                    Consistency score based on your scanned meals
-                  </div>
+                  <h2 className="h3">This week's health score</h2>
+                  <p>How healthy the products you scanned each day were</p>
                 </div>
                 {avgScore > 0 && (
-                  <div style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '1.6rem', fontWeight: 800, color: '#1B6B3A' }}>
-                    {avgScore}%
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="num" style={{ fontSize: '2.2rem', lineHeight: 1, color: 'var(--ns-a)' }}>
+                      <CountUp value={avgScore} suffix="%" />
+                    </div>
+                    <div className="tiny faint">average on days you scanned</div>
                   </div>
                 )}
               </div>
               {weeklyData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={190}>
+                <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={weeklyData} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#7B887E' }} />
                     <YAxis hide domain={[0, 110]} />
-                    <Tooltip formatter={(v) => `${v}%`} />
-                    <Bar dataKey="val" radius={[4, 4, 0, 0]} label={({ index, x, y, width, value }) =>
-                      index === maxIdx ? (
-                        <text x={x + width / 2} y={y - 6} textAnchor="middle" fontSize={11} fill="#1B6B3A" fontWeight={600}>{value}%</text>
-                      ) : null
-                    }>
-                      {weeklyData.map((entry, i) => (
-                        <Cell key={i} fill={i === maxIdx ? '#1B6B3A' : '#BBF7D0'} />
-                      ))}
+                    <Tooltip cursor={{ fill: 'rgba(22,41,30,.05)', radius: 8 }} content={<ChartTip unit="%" />} />
+                    <Bar dataKey="val" name="Score" radius={[7, 7, 7, 7]} animationDuration={900} animationEasing="ease-out"
+                      label={({ index, x, y, width, value }) => index === maxIdx
+                        ? <text x={x + width / 2} y={y - 7} textAnchor="middle" fontSize={12} fill="#16291E" fontWeight={700}>{value}%</text>
+                        : null}
+                    >
+                      {weeklyData.map((_, i) => <Cell key={i} fill={i === maxIdx ? '#038141' : '#CFE0C9'} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div style={{ height: 190, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: '0.85rem' }}>
-                  No weekly data yet
-                </div>
+                <p className="faint small" style={{ height: 200, display: 'grid', placeItems: 'center' }}>Scan on a few different days to see a trend.</p>
               )}
-            </div>
+            </section>
 
-            {/* Scan Categories */}
-            <div className="nl-card" style={{ height: '100%' }}>
-              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#111827', marginBottom: '1.2rem' }}>Scan Categories</div>
-              {[
-                ['🥗 Healthy', healthyPct, '#1B6B3A'],
-                ['⚠️ Moderate', moderatePct, '#F59E0B'],
-                ['🚨 Unhealthy', unhealthyPct, '#EF4444'],
-              ].map(([label, pct, color]) => (
-                <div key={label} style={{ marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                    <span style={{ fontSize: '0.85rem', color: '#374151' }}>{label}</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#111827' }}>{pct}%</span>
-                  </div>
-                  <div className="progress-bar">
-                    <div className="progress-fill" style={{ width: `${pct}%`, background: color }} />
-                  </div>
-                </div>
-              ))}
-              <button className="btn btn-full" style={{ marginTop: '0.5rem' }} onClick={() => navigate('/insights')}>View Detailed Trends</button>
-            </div>
+            <section className="panel panel-ink" style={{ display: 'flex', flexDirection: 'column' }}>
+              <div className="muted small">Products checked</div>
+              <div className="num" style={{ fontSize: '3.4rem', lineHeight: 1.05, color: '#fff', margin: '4px 0 22px' }}>
+                <CountUp value={totalScans} />
+              </div>
+              <SplitBar parts={[
+                { label: 'Healthy', value: healthyPct, color: 'var(--ns-a)' },
+                { label: 'Moderate', value: moderatePct, color: 'var(--ns-c)' },
+                { label: 'Unhealthy', value: unhealthyPct, color: 'var(--ns-e)' },
+              ]} />
+              <div style={{ marginTop: 'auto', paddingTop: 22 }} className="row-wrap">
+                <Button variant="on-ink" size="sm" icon="insights" onClick={() => navigate('/insights')}>See trends</Button>
+                <Button variant="on-ink" size="sm" icon="camera" onClick={() => navigate('/scans')}>Scan another</Button>
+              </div>
+            </section>
           </div>
 
-          {/* Demo buttons */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#374151', marginBottom: '0.5rem' }}>🇮🇳 Quick scan Indian products:</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.5rem' }}>
-              {DEMO_FOODS.map(([label, key]) => (
-                <button key={key} className="btn" style={{ fontSize: '0.78rem', padding: '0.4rem 0.5rem' }} onClick={() => handleDemoClick(key)}>{label}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Row 2: Recent Scans */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0.5rem 0 1rem 0' }}>
-            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '1.1rem', color: '#111827' }}>Recent Scans</div>
-            <span
-              onClick={() => navigate('/scans')}
-              style={{ fontSize: '0.85rem', color: '#1B6B3A', fontWeight: 600, cursor: 'pointer' }}
-            >View All Scans →</span>
+          <div className="section-title">
+            <h2 className="h3">Recent scans</h2>
+            <button className="link-btn" onClick={() => navigate('/scans')}>All scans <Icon name="arrowRight" size={16} /></button>
           </div>
 
           {recentScans.length > 0 ? (
-            <div className="grid-4">
+            <div className="grid g-4 enter-list">
               {recentScans.slice(0, 8).map((scan, i) => {
                 const label = scan.health_label || scan.label || 'Moderate'
-                const style = HEALTH_LABEL_STYLE[label] || HEALTH_LABEL_STYLE.Moderate
-                const emoji = HEALTH_EMOJI[label] || '⚠️'
+                const h = HEALTH[label] || HEALTH.Moderate
                 const kcal = scan.energy_kcal || scan.kcal || 0
-                const name = scan.product_name || scan.name || 'Unknown Product'
+                const name = scan.product_name || scan.name || 'Unknown product'
                 return (
-                  <div key={i} className="scan-card">
-                    <div style={{ background: '#F9FAF9', height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', borderRadius: '16px 16px 0 0' }}>
-                      <span style={{ fontSize: '3.5rem' }}>{emoji}</span>
-                      <span style={{ position: 'absolute', top: 10, right: 10, background: style.bg, color: style.color, fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>
-                        {label}
+                  <button
+                    key={i}
+                    className="pcard"
+                    onClick={() => navigate('/scans?q=' + encodeURIComponent(name.split(' ')[0]))}
+                  >
+                    <div className="pcard-top">
+                      <div style={{ minWidth: 0 }}>
+                        <div className="pcard-name">{name}</div>
+                        <div className="pcard-meta">{timeAgo(scan.scanned_at || scan.timestamp)}</div>
+                      </div>
+                      <Grade value={scan.nutri_score} size="sm" />
+                    </div>
+                    <div className="pcard-foot">
+                      <span className="row" style={{ gap: 8 }}>
+                        <Badge label={label} color={h.badge} />
+                        {kcal > 0 && <span>{kcal} kcal</span>}
                       </span>
+                      <span className="pcard-go">Open <Icon name="arrowRight" size={15} /></span>
                     </div>
-                    <div style={{ padding: '0.75rem 1rem' }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#111827', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {name.length > 30 ? name.slice(0, 30) + '…' : name}
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: '#9CA3AF', marginBottom: 6 }}>
-                        🕐 {timeAgo(scan.scanned_at || scan.timestamp)} {kcal > 0 && <>&nbsp;·&nbsp; 🔥 {kcal} kcal</>}
-                      </div>
-                      {scan.nutri_score && (
-                        <Badge label={`NS: ${scan.nutri_score}`} color={['A','B'].includes(scan.nutri_score) ? 'green' : ['C'].includes(scan.nutri_score) ? 'amber' : 'red'} />
-                      )}
-                    </div>
-                    <div style={{ padding: '0 1rem 0.75rem' }}>
-                      <button className="btn btn-full" onClick={() => navigate('/scans?q=' + encodeURIComponent(name.split(' ')[0]))}>
-                        View Details
-                      </button>
-                    </div>
-                  </div>
+                  </button>
                 )
               })}
             </div>
           ) : (
-            <div className="nl-card" style={{ textAlign: 'center', padding: '2rem', color: '#9CA3AF' }}>
-              No recent scans to show
-            </div>
+            <p className="panel faint">Nothing scanned recently.</p>
           )}
 
-          {/* Row 3: Pro Insight + Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginTop: '1.5rem' }}>
-            <div className="nl-card" style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-              <div style={{ width: 44, height: 44, background: '#F0FDF4', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <span style={{ fontSize: '1.3rem' }}>💡</span>
-              </div>
+          <div className="grid g-side mt-lg">
+            <section className="panel panel-sage row" style={{ alignItems: 'flex-start', gap: 16 }}>
+              <Icon name={unhealthyPct > 20 ? 'alert' : 'leaf'} size={26} style={{ color: unhealthyPct > 20 ? 'var(--bad)' : 'var(--ns-a)', flexShrink: 0 }} />
               <div>
-                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#111827', marginBottom: 4 }}>Pro Insight</div>
-                <div style={{ fontSize: '0.83rem', color: '#6B7280', lineHeight: 1.6 }}>
+                <h2 className="h3" style={{ marginBottom: 4 }}>
+                  {unhealthyPct > 20 ? 'More than a fifth of your scans are unhealthy' : 'Your picks are mostly on track'}
+                </h2>
+                <p className="muted small" style={{ marginBottom: 12 }}>
                   {unhealthyPct > 20
-                    ? 'Consider reducing processed food consumption. Your unhealthy scan rate is above 20%.'
-                    : 'Great job! Keep scanning your food to maintain your healthy eating habits.'}
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1B6B3A', cursor: 'pointer' }} onClick={() => navigate('/alternatives')}>Learn more about healthier alternatives →</span>
-                </div>
+                    ? 'Ultra-processed snacks are usually the culprit. Swapping two or three regulars makes the biggest difference.'
+                    : 'Keep scanning new products before they become regulars in your cart.'}
+                </p>
+                <button className="link-btn" onClick={() => navigate('/alternatives')}>Find healthier swaps <Icon name="arrowRight" size={16} /></button>
               </div>
-            </div>
-
-            <div>
-              <div style={{ background: '#0F2218', borderRadius: 16, padding: '1.25rem 1.5rem', color: '#FFFFFF', marginBottom: '0.75rem' }}>
-                <div style={{ fontSize: '0.75rem', color: '#6EE7B7', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
-                  TOTAL SCANS
-                </div>
-                <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '2rem', fontWeight: 800, marginBottom: 12 }}>
-                  {totalScans} Items
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div style={{ background: '#1B6B3A', borderRadius: 8, padding: '6px 12px', textAlign: 'center', flex: 1 }}>
-                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>{healthyPct}%</div>
-                    <div style={{ fontSize: '0.65rem', color: '#6EE7B7' }}>Healthy</div>
-                  </div>
-                  <div style={{ background: '#D97706', borderRadius: 8, padding: '6px 12px', textAlign: 'center', flex: 1 }}>
-                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>{moderatePct}%</div>
-                    <div style={{ fontSize: '0.65rem', color: '#FEF3C7' }}>Moderate</div>
-                  </div>
-                  <div style={{ background: '#B91C1C', borderRadius: 8, padding: '6px 12px', textAlign: 'center', flex: 1 }}>
-                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>{unhealthyPct}%</div>
-                    <div style={{ fontSize: '0.65rem', color: '#FEE2E2' }}>Unhealthy</div>
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <button className="btn" onClick={() => navigate('/scans')}>📷 Scan New</button>
-                <button className="btn" onClick={() => navigate('/chat')}>💬 Ask AI</button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                <button className="btn" onClick={() => navigate('/insights')}>📈 Trends</button>
-                <button className="btn" onClick={() => navigate('/diet-plan')}>🥗 Diet Plan</button>
-              </div>
-            </div>
+            </section>
+            <section className="panel">
+              <h2 className="h3" style={{ marginBottom: 12 }}>Quick check</h2>
+              {demoRow}
+            </section>
           </div>
         </>
       )}
-    </div>
+    </>
   )
 }
