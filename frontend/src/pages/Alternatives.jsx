@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
 import { useApp } from '../App'
+import Icon from '../components/Icon'
 import Loader from '../components/Loader'
+import { Button, Grade, Accordion, CountUp, PageHead, Note } from '../components/ui'
 
+// Curated swaps per product. `emoji` / `tagCls` are kept for data compatibility but no longer rendered.
 const ALTERNATIVES_DB = {
   nutella: [
     { name: 'Artisana Almond', brand: 'Organic · 400g', tag: 'SMART CHOICE', tagCls: 'tag-smart', nutri_score: 'A', avg_price: '$12.99', sugars: 4.2, emoji: '🥜', reasons: ['92% less sugar', 'High in healthy fats', 'Single ingredient'] },
@@ -51,206 +55,207 @@ const HEALTH_IMPACTS = {
   haldirams: { sugar_change: '-90%', sugar_label: 'Fat', protein_change: '+8g', protein_label: 'Protein', summary: "Haldiram's Bhujia is deep-fried with 35g fat per 100g. Roasted makhana provides the same satisfying crunch with 90% less fat and significantly more nutrients per calorie.", tip: "Roast makhana at home with a tiny bit of ghee, turmeric, and black pepper for a protein-rich snack that rivals any packaged namkeen." },
 }
 
-const NS_COLORS = { A: '#1B6B3A', B: '#74b816', C: '#f59e0b', D: '#f97316', E: '#dc2626', 'N/A': '#9CA3AF' }
-const TAG_EMOJI = { 'SMART CHOICE': '✨', 'DIRECT REPLACEMENT': '🔄', 'BEST VALUE': '💰' }
+const TAGS = {
+  'SMART CHOICE': { label: 'Healthiest pick', icon: 'leaf' },
+  'DIRECT REPLACEMENT': { label: 'Closest taste', icon: 'swap' },
+  'BEST VALUE': { label: 'Best value', icon: 'target' },
+}
+
+const PICKER = [
+  { group: 'Indian', items: [['maggi', 'Maggi noodles'], ['haldirams', "Haldiram's bhujia"], ['parle_g', 'Parle-G']] },
+  { group: 'International', items: [['nutella', 'Nutella'], ['lays', "Lay's chips"], ['oats', 'Quaker oats']] },
+]
+
+function CompareRow({ k, v, tone }) {
+  return (
+    <div className="between small" style={{ padding: '9px 0', borderTop: '1px solid var(--line)' }}>
+      <span className="muted">{k}</span>
+      <span className="num" style={{ fontSize: '0.95rem', color: tone }}>{v}</span>
+    </div>
+  )
+}
 
 export default function Alternatives() {
   const navigate = useNavigate()
   const { altProduct, setAltProduct } = useApp()
   const [aiText, setAiText] = useState(null)
   const [loadingAI, setLoadingAI] = useState(false)
-  const [showAI, setShowAI] = useState(false)
   const [successIdx, setSuccessIdx] = useState(null)
+  const [demoLoading, setDemoLoading] = useState(null)
 
-  // Determine which key to use
+  // Match on letters only, so "Haldiram's Aloo Bhujia" finds `haldirams` and "Parle-G" finds `parle_g`
   let selectedKey = null
   if (altProduct) {
-    const nameLower = (altProduct.name || '').toLowerCase()
-    for (const k of Object.keys(ALTERNATIVES_DB)) {
-      if (nameLower.includes(k)) { selectedKey = k; break }
-    }
-    if (!selectedKey) selectedKey = 'nutella'
+    const flat = (altProduct.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    selectedKey = Object.keys(ALTERNATIVES_DB).find(k => flat.includes(k.replace(/_/g, ''))) || null
   }
 
   const product = altProduct || null
   const alternatives = selectedKey ? ALTERNATIVES_DB[selectedKey] : []
   const impact = selectedKey ? HEALTH_IMPACTS[selectedKey] : null
 
-  // Reset AI state when product changes
   useEffect(() => {
-    setAiText(null)
-    setShowAI(false)
-    setSuccessIdx(null)
+    setAiText(null); setSuccessIdx(null)
+    // No curated list for this product: go straight to the AI suggestions
+    if (altProduct && !selectedKey) loadAI(true, true)
   }, [altProduct])
 
-  // Load AI text when expander opened
-  function handleShowAI() {
-    setShowAI(s => !s)
-    if (!aiText && product) {
-      setLoadingAI(true)
-      fetch('/api/alternatives-text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product, category: (product.categories || ['food'])[0] || 'food' }),
-      })
-        .then(r => r.json())
-        .then(d => { setAiText(d.text); setLoadingAI(false) })
-        .catch(() => setLoadingAI(false))
-    }
+  function loadAI(open, force) {
+    if (!open || (aiText && !force) || !product) return
+    setLoadingAI(true)
+    fetch('/api/alternatives-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product, category: (product.categories || ['food'])[0] || 'food' }),
+    })
+      .then(r => r.json())
+      .then(d => setAiText(d.text))
+      .catch(() => {})
+      .finally(() => setLoadingAI(false))
   }
 
   function handleDemoClick(key) {
+    setDemoLoading(key)
     fetch(`/api/demo/${key}`)
       .then(r => r.json())
       .then(p => setAltProduct(p))
       .catch(() => {})
+      .finally(() => setDemoLoading(null))
   }
 
   if (!product) {
     return (
-      <div>
-        <div className="page-title">Alternative Recommender</div>
-        <div className="page-sub">Compare your scanned product with healthier, expert-vetted alternatives to optimise your daily nutrition.</div>
-        <p style={{ marginBottom: '1rem', fontWeight: 500, fontSize: '0.9rem', color: '#374151' }}>Choose a product to find alternatives for:</p>
-
-        {/* International Products */}
-        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#6B7280', marginBottom: '0.5rem' }}>🌍 International</div>
-        <div className="grid-3" style={{ marginBottom: '1rem' }}>
-          <button className="btn" onClick={() => handleDemoClick('nutella')}>🍫 Nutella</button>
-          <button className="btn" onClick={() => handleDemoClick('lays')}>🥔 Lay's Chips</button>
-          <button className="btn" onClick={() => handleDemoClick('oats')}>🌾 Quaker Oats</button>
+      <>
+        <PageHead title="Healthier swaps">
+          Pick something you buy often. We'll put it next to three better options from the same shelf.
+        </PageHead>
+        <div className="grid g-2">
+          {PICKER.map(({ group, items }) => (
+            <section key={group} className="panel">
+              <h2 className="h3" style={{ marginBottom: 14 }}>{group}</h2>
+              <div className="stack-sm">
+                {items.map(([key, label]) => (
+                  <button key={key} className="pcard" style={{ flexDirection: 'row', alignItems: 'center', padding: '14px 16px' }} onClick={() => handleDemoClick(key)}>
+                    <span style={{ flex: 1, fontWeight: 600 }}>{label}</span>
+                    {demoLoading === key
+                      ? <Loader inline text="" />
+                      : <span className="pcard-go">Compare <Icon name="arrowRight" size={15} /></span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
-
-        {/* Indian Products */}
-        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#6B7280', marginBottom: '0.5rem' }}>🇮🇳 Indian</div>
-        <div className="grid-3" style={{ marginBottom: '1rem' }}>
-          <button className="btn" onClick={() => handleDemoClick('maggi')}>🍜 Maggi</button>
-          <button className="btn" onClick={() => handleDemoClick('haldirams')}>🥨 Haldiram's</button>
-          <button className="btn" onClick={() => handleDemoClick('parle_g')}>🍪 Parle-G</button>
+        <div className="mt-md">
+          <Note tone="info">You can also open any product in <b>Scan a product</b> and choose “Find healthier swaps”.</Note>
         </div>
-
-        <div className="info-box mt-md">→ Or analyze a product in <b>My Scans</b> and click "Find Healthier Alternatives".</div>
-      </div>
+      </>
     )
   }
 
-  const nsColor = NS_COLORS[product.nutri_score] || '#9CA3AF'
-
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <div className="page-title">Alternative Recommender</div>
-          <div className="page-sub">Compare your scanned product with healthier, expert-vetted alternatives.</div>
-        </div>
-        <div className="nl-card" style={{ padding: '0.6rem 1rem', textAlign: 'center', minWidth: 160 }}>
-          <div style={{ fontSize: '0.72rem', color: '#9CA3AF' }}>ℹ️ {alternatives.length} Alternatives found for</div>
-          <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.88rem' }}>{product.name}</div>
-        </div>
-      </div>
+    <>
+      <PageHead
+        title="Healthier swaps"
+        actions={<Button variant="ghost" icon="arrowLeft" iconMotion="back" onClick={() => setAltProduct(null)}>Choose another product</Button>}
+      >
+        {selectedKey
+          ? <>{alternatives.length} better options for <b>{product.name}</b>, compared on grade, sugar and price.</>
+          : <>Better options for <b>{product.name}</b>.</>}
+      </PageHead>
 
-      {/* Product cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
-        {/* Current */}
-        <div className="alt-card alt-card-current">
-          <div style={{ position: 'absolute', top: 12, left: 12 }}><span className="tag-current">CURRENT SCAN</span></div>
-          <div style={{ textAlign: 'center', padding: '1.5rem 0 0.8rem 0', fontSize: '3.5rem' }}>🍫</div>
-          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, fontSize: '1.05rem', color: '#111827', marginBottom: 2 }}>{(product.name || '').slice(0, 20)}</div>
-          <div style={{ fontSize: '0.75rem', color: '#9CA3AF', marginBottom: 12 }}>{(product.brand || '').slice(0, 25)}</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6', fontSize: '0.82rem' }}>
-            <span style={{ color: '#6B7280' }}>Nutri-Score</span>
-            <span style={{ background: nsColor, color: '#fff', fontWeight: 700, padding: '1px 10px', borderRadius: 4 }}>{product.nutri_score || 'N/A'}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.82rem' }}>
-            <span style={{ color: '#6B7280' }}>Sugar (per 100g)</span>
-            <span style={{ color: '#EF4444', fontWeight: 700 }}>{product.sugars ?? '?'}g</span>
-          </div>
-        </div>
+      {!selectedKey && (
+        <div className="mb-md"><Note tone="info">There's no hand-picked list for {product.name} yet, so these suggestions come from the AI.</Note></div>
+      )}
 
-        {/* Alternative cards */}
-        {alternatives.map((alt, i) => {
-          const nsC = NS_COLORS[alt.nutri_score] || '#9CA3AF'
-          return (
-            <div key={i} className="alt-card">
-              <div style={{ position: 'absolute', top: 12, left: 12 }}>
-                <span className={alt.tagCls}>{TAG_EMOJI[alt.tag] || ''} {alt.tag}</span>
-              </div>
-              <div style={{ textAlign: 'center', padding: '1.5rem 0 0.8rem 0', fontSize: '3.5rem' }}>{alt.emoji}</div>
-              <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, fontSize: '1.05rem', color: '#111827', marginBottom: 2 }}>{alt.name}</div>
-              <div style={{ fontSize: '0.75rem', color: '#9CA3AF', marginBottom: 12 }}>{alt.brand}</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6', fontSize: '0.82rem' }}>
-                <span style={{ color: '#6B7280' }}>Nutri-Score</span>
-                <span style={{ background: nsC, color: '#fff', fontWeight: 700, padding: '1px 10px', borderRadius: 4 }}>{alt.nutri_score}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6', fontSize: '0.82rem' }}>
-                <span style={{ color: '#6B7280' }}>Avg Price</span>
-                <span style={{ color: '#111827', fontWeight: 600 }}>{alt.avg_price}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6', fontSize: '0.82rem' }}>
-                <span style={{ color: '#6B7280' }}>Sugar (per 100g)</span>
-                <span style={{ color: '#15803D', fontWeight: 700 }}>{alt.sugars}g</span>
-              </div>
-              <div style={{ marginTop: 10, fontSize: '0.72rem', color: '#6B7280', fontWeight: 600, marginBottom: 6 }}>Why it's better:</div>
-              {alt.reasons.map((r, j) => <div key={j} style={{ fontSize: '0.78rem', color: '#15803D', marginBottom: 3 }}>✓ {r}</div>)}
-              <div style={{ marginTop: '0.75rem' }}>
-                <button
-                  className={`btn btn-full${successIdx === i ? ' btn-primary' : ''}`}
-                  onClick={() => setSuccessIdx(i)}
-                >
-                  {successIdx === i ? '✓ Added to watchlist!' : 'Select Alternative'}
-                </button>
-              </div>
+      {selectedKey && <div className="grid g-4 enter-list" style={{ alignItems: 'stretch' }}>
+        <section className="panel" style={{ background: 'var(--bad-bg)', borderColor: 'transparent', display: 'flex', flexDirection: 'column' }}>
+          <span className="badge badge-red" style={{ alignSelf: 'flex-start' }}>You're buying</span>
+          <div className="between" style={{ alignItems: 'flex-start', margin: '16px 0 18px' }}>
+            <div style={{ minWidth: 0 }}>
+              <h3 className="h3">{product.name}</h3>
+              <div className="small faint">{product.brand}</div>
             </div>
+            <Grade value={product.nutri_score} />
+          </div>
+          <CompareRow k="Sugar per 100 g" v={`${product.sugars ?? '?'} g`} tone="var(--bad)" />
+          {product.salt != null && <CompareRow k="Salt per 100 g" v={`${product.salt} g`} tone={product.salt > 1.5 ? 'var(--bad)' : undefined} />}
+          {product.saturated_fat != null && <CompareRow k="Saturated fat" v={`${product.saturated_fat} g`} tone={product.saturated_fat > 5 ? 'var(--bad)' : undefined} />}
+          {product.energy_kcal != null && <CompareRow k="Energy" v={`${product.energy_kcal} kcal`} />}
+          {product.nova_group && <CompareRow k="Processing" v={`NOVA ${product.nova_group}`} tone={product.nova_group >= 4 ? 'var(--bad)' : undefined} />}
+        </section>
+
+        {alternatives.map((alt, i) => {
+          const tag = TAGS[alt.tag] || { label: alt.tag, icon: 'leaf' }
+          const picked = successIdx === i
+          return (
+            <section key={i} className="panel" style={{ display: 'flex', flexDirection: 'column', borderColor: picked ? 'var(--ns-a)' : undefined, transition: 'border-color .25s' }}>
+              <span className="badge badge-green" style={{ alignSelf: 'flex-start' }}><Icon name={tag.icon} size={13} stroke={2.2} />{tag.label}</span>
+              <div className="between" style={{ alignItems: 'flex-start', margin: '16px 0 18px' }}>
+                <div style={{ minWidth: 0 }}>
+                  <h3 className="h3">{alt.name}</h3>
+                  <div className="small faint">{alt.brand}</div>
+                </div>
+                <Grade value={alt.nutri_score} />
+              </div>
+              <CompareRow k="Sugar per 100 g" v={`${alt.sugars} g`} tone="var(--good)" />
+              <CompareRow k="Typical price" v={alt.avg_price} />
+              <ul style={{ listStyle: 'none', margin: '12px 0 18px' }} className="stack-sm small">
+                {alt.reasons.map((r, j) => (
+                  <li key={j} className="row" style={{ alignItems: 'flex-start', gap: 8 }}>
+                    <Icon name="check" size={16} stroke={2.4} style={{ color: 'var(--ns-a)', marginTop: 2, flexShrink: 0 }} />{r}
+                  </li>
+                ))}
+              </ul>
+              <Button block done={picked} variant={picked ? 'secondary' : 'primary'} onClick={() => setSuccessIdx(picked ? null : i)} style={{ marginTop: 'auto' }}>
+                {picked ? 'On your list' : 'Add to my list'}
+              </Button>
+            </section>
           )
         })}
-      </div>
+      </div>}
 
-      {/* Health Impact Banner */}
       {impact && (
-        <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1rem', marginBottom: '1rem' }}>
-          <div className="impact-banner">
-            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.2rem', fontWeight: 800, marginBottom: 8 }}>Health Impact of Swapping</div>
-            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, marginBottom: '1.2rem' }}>{impact.summary}</div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div className="impact-stat">
-                <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{impact.sugar_change}</div>
-                <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)' }}>{impact.sugar_label}</div>
-              </div>
-              <div className="impact-stat">
-                <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{impact.protein_change}</div>
-                <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)' }}>{impact.protein_label}</div>
-              </div>
+        <div className="grid g-main mt-md">
+          <section className="panel panel-ink">
+            <h2 className="h2" style={{ color: '#fff', marginBottom: 10 }}>What the swap changes</h2>
+            <p className="muted" style={{ marginBottom: 22, maxWidth: '60ch' }}>{impact.summary}</p>
+            <div className="row" style={{ gap: 36 }}>
+              {[[impact.sugar_change, impact.sugar_label], [impact.protein_change, impact.protein_label]].map(([v, l]) => {
+                const n = parseFloat(v)
+                const sign = v.trim().startsWith('+') ? '+' : v.trim().startsWith('-') ? '−' : ''
+                const unit = v.replace(/[-+\d.]/g, '')
+                return (
+                  <div key={l}>
+                    <div className="num" style={{ fontSize: '2.6rem', lineHeight: 1, color: 'var(--ns-b)' }}>
+                      {sign}<CountUp value={Math.abs(n)} />{unit}
+                    </div>
+                    <div className="small muted" style={{ marginTop: 4 }}>{l}</div>
+                  </div>
+                )
+              })}
             </div>
-          </div>
-          <div className="nl-card">
-            <div style={{ fontSize: '1.5rem', marginBottom: 8, color: '#1B6B3A' }}>💡</div>
-            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '1rem', color: '#111827', marginBottom: 10 }}>Advisor Tip</div>
-            <div style={{ fontSize: '0.85rem', color: '#6B7280', lineHeight: 1.7, fontStyle: 'italic' }}>"{impact.tip}"</div>
-            <div style={{ marginTop: 12 }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1B6B3A', cursor: 'pointer' }} onClick={() => navigate('/chat')}>Read full guide →</span>
+          </section>
+          <section className="panel panel-sage">
+            <div className="row" style={{ marginBottom: 10 }}>
+              <Icon name="leaf" size={20} style={{ color: 'var(--ns-a)' }} />
+              <h2 className="h3">Advisor tip</h2>
             </div>
-          </div>
+            <p className="muted" style={{ lineHeight: 1.7 }}>{impact.tip}</p>
+            <button className="link-btn mt-md" onClick={() => navigate('/chat')}>Ask the advisor about this <Icon name="arrowRight" size={16} /></button>
+          </section>
         </div>
       )}
 
-      {/* AI Expander */}
-      <div className="expander">
-        <div className="expander-header" onClick={handleShowAI}>
-          <span>🤖 AI Alternative Analysis</span>
-          <span>{showAI ? '▲' : '▼'}</span>
-        </div>
-        {showAI && (
-          <div className="expander-body">
-            {loadingAI ? <Loader text="Generating AI alternatives analysis…" /> :
-              aiText ? <div className="nl-card nl-card-green" style={{ fontSize: '0.88rem', lineHeight: 1.8 }}>{aiText}</div>
-              : null}
-          </div>
-        )}
+      <div className="mt-md">
+        <Accordion key={product.name} title="What the AI suggests" icon="chat" onToggle={loadAI} defaultOpen={!selectedKey}>
+          {loadingAI
+            ? <Loader inline text="Looking for more options…" />
+            : aiText
+              ? <div className="bubble" style={{ padding: 0, maxWidth: '75ch' }}><ReactMarkdown>{aiText}</ReactMarkdown></div>
+              : <p className="faint small">No suggestions came back. Close and reopen to try again.</p>}
+        </Accordion>
       </div>
-
-      <div style={{ marginTop: '0.5rem' }}>
-        <button className="btn-ghost" onClick={() => setAltProduct(null)}>← Analyse a different product</button>
-      </div>
-    </div>
+    </>
   )
 }

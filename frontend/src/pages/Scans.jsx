@@ -1,12 +1,16 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
 import { useApp } from '../App'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
-} from 'recharts'
+import Icon from '../components/Icon'
 import Loader from '../components/Loader'
 import Badge from '../components/Badge'
+import {
+  Button, Grade, Ladder, Nova, Tabs, Note, Meter, Ring, CountUp, SplitBar,
+  ProductChip, DEMO_FOODS, HEALTH, NOVA_COLORS,
+} from '../components/ui'
 
+// Per-100g thresholds that earn a "High" flag
 const HIGH_NUTRIENTS = {
   sugars: [22.5, 'red'],
   fat: [17.5, 'amber'],
@@ -15,104 +19,77 @@ const HIGH_NUTRIENTS = {
   energy_kcal: [400, 'amber'],
 }
 
-const KEY_LABELS = {
-  energy_kcal: 'Energy', fat: 'Total Fat', saturated_fat: '— Saturated Fat',
-  carbohydrates: 'Carbohydrates', sugars: '— of which Sugars',
-  fiber: 'Dietary Fibre', proteins: 'Protein', salt: 'Salt',
-}
-
-const KEY_UNITS = {
-  energy_kcal: 'kcal', fat: 'g', saturated_fat: 'g', carbohydrates: 'g',
-  sugars: 'g', fiber: 'g', proteins: 'g', salt: 'g',
-}
-
-const KEY_MAP = {
-  'Total Fat': 'fat', '— Saturated Fat': 'saturated_fat',
-  '— of which Sugars': 'sugars', 'Salt': 'salt', 'Energy': 'energy_kcal',
-}
-
-const NS_COLORS = { A: '#1B6B3A', B: '#74b816', C: '#f59e0b', D: '#f97316', E: '#dc2626', 'N/A': '#9CA3AF' }
-
-const DEMO_BUTTONS = [
-  ['🍜 Maggi', 'maggi'],
-  ['🧈 Amul Butter', 'amul_butter'],
-  ['🥨 Haldiram\'s', 'haldirams'],
-  ['🍪 Parle-G', 'parle_g'],
-  ['🫙 Atta', 'atta'],
-  ['🥛 Dahi', 'dahi'],
+const ROWS = [
+  { key: 'energy_kcal', label: 'Energy', unit: 'kcal', thick: true },
+  { key: 'fat', label: 'Total fat', unit: 'g' },
+  { key: 'saturated_fat', label: 'Saturated fat', unit: 'g', sub: true },
+  { key: 'carbohydrates', label: 'Carbohydrates', unit: 'g' },
+  { key: 'sugars', label: 'of which sugars', unit: 'g', sub: true },
+  { key: 'fiber', label: 'Dietary fibre', unit: 'g', good: 3 },
+  { key: 'proteins', label: 'Protein', unit: 'g', good: 5 },
+  { key: 'salt', label: 'Salt', unit: 'g', thick: true },
 ]
 
-function NutritionTable({ product }) {
-  const rows = [
-    ['energy_kcal', 'Energy'], ['fat', 'Total Fat'], ['saturated_fat', '— Saturated Fat'],
-    ['carbohydrates', 'Carbohydrates'], ['sugars', '— of which Sugars'],
-    ['fiber', 'Dietary Fibre'], ['proteins', 'Protein'], ['salt', 'Salt'],
-  ]
-
+function NutritionFacts({ product }) {
   return (
-    <div>
-      {rows.map(([key, label]) => {
+    <div className="facts">
+      <div className="facts-title">Nutrition facts</div>
+      <div className="facts-sub"><span>Per 100 g</span><span>Amount</span></div>
+      {ROWS.map(({ key, label, unit, sub, thick, good }) => {
         const val = product[key]
-        const unit = KEY_UNITS[key] || 'g'
-        const isSub = label.startsWith('—')
         let badge = null
-        const mapKey = KEY_MAP[label]
-        if (val != null && mapKey && HIGH_NUTRIENTS[mapKey]) {
-          const [thresh, col] = HIGH_NUTRIENTS[mapKey]
-          badge = val > thresh ? <Badge label="HIGH" color={col} /> : <Badge label="OK" color="gray" />
+        if (val != null && HIGH_NUTRIENTS[key]) {
+          const [thresh, col] = HIGH_NUTRIENTS[key]
+          badge = val > thresh ? <Badge label="High" color={col} /> : <Badge label="OK" color="gray" />
         }
-        if (label === 'Dietary Fibre' || label === 'Protein') {
-          badge = val >= (label === 'Dietary Fibre' ? 3 : 5) ? <Badge label="GOOD" color="green" /> : null
-        }
-
+        if (good && val != null) badge = val >= good ? <Badge label="Good" color="green" /> : null
         return (
-          <div key={key} className={`nut-row${isSub ? ' sub' : ''}`}>
-            <span>{label}</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ color: '#111827' }}>{val != null ? `${val} ${unit}` : '—'}</span>
-              {badge}
-            </span>
+          <div key={key} className={`facts-row ${sub ? 'sub' : ''} ${thick ? 'thick' : ''}`}>
+            <span>{sub ? label : <b>{label}</b>}</span>
+            <span className="v">{badge}<span className="num" style={{ fontWeight: sub ? 600 : 800 }}>{val != null ? `${val} ${unit}` : '—'}</span></span>
           </div>
         )
       })}
-      <div style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: 8, textAlign: 'right' }}>per 100g</div>
+      <div className="facts-foot">Flags use WHO and UK FSA per-100g limits.</div>
     </div>
   )
 }
 
-function DRVChart({ drv }) {
-  const DRV_LABELS = {
-    energy_kcal: 'Calories', fat: 'Total Fat', saturated_fat: 'Sat. Fat',
-    sugars: 'Sugars', fiber: 'Fibre', proteins: 'Protein', salt: 'Salt',
-  }
-  const data = Object.entries(drv || {}).map(([k, pct]) => ({
-    name: DRV_LABELS[k] || k,
-    pct,
-    color: ['sugars', 'saturated_fat', 'salt'].includes(k) && pct > 25 ? '#EF4444'
-      : ['sugars', 'saturated_fat', 'salt'].includes(k) && pct > 12 ? '#F59E0B'
-      : ['fiber', 'proteins'].includes(k) ? '#1B6B3A'
-      : '#BBF7D0',
-  }))
+const DRV_LABELS = {
+  energy_kcal: 'Calories', fat: 'Total fat', saturated_fat: 'Sat. fat', carbohydrates: 'Carbs',
+  sugars: 'Sugars', fiber: 'Fibre', proteins: 'Protein', salt: 'Salt', sodium: 'Sodium',
+}
+const LIMIT_KEYS_ALL = ['sugars', 'saturated_fat', 'salt', 'sodium']
 
+// Server messages sometimes start with an emoji; the UI supplies its own icons
+const clean = t => String(t || '').replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '')
+const LIMIT_KEYS = LIMIT_KEYS_ALL
+
+function DailyValues({ drv }) {
+  const entries = Object.entries(drv || {})
+  if (!entries.length) return <p className="faint small">Daily value data isn't available for this product.</p>
   return (
-    <ResponsiveContainer width="100%" height={280}>
-      <BarChart data={data} margin={{ top: 40, right: 0, left: 0, bottom: 10 }}>
-        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-        <YAxis hide domain={[0, 120]} />
-        <Tooltip formatter={(v) => `${v.toFixed(0)}%`} />
-        <Bar dataKey="pct" radius={[4, 4, 0, 0]}
-          label={({ x, y, width, value }) => (
-            <text x={x + width / 2} y={y - 4} textAnchor="middle" fontSize={10} fill="#6B7280">{value?.toFixed(0)}%</text>
-          )}
-        >
-          {data.map((d, i) => <Cell key={i} fill={d.color} />)}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <div>
+      <h3 className="h3">Share of your daily needs</h3>
+      <p className="faint small" style={{ margin: '4px 0 18px' }}>From 100 g, against a 2,000 kcal adult diet</p>
+      {entries.map(([k, pct]) => {
+        const color = LIMIT_KEYS.includes(k) && pct > 25 ? 'var(--ns-e)'
+          : LIMIT_KEYS.includes(k) && pct > 12 ? 'var(--ns-d)'
+          : ['fiber', 'proteins'].includes(k) ? 'var(--ns-a)'
+          : 'var(--ink-3)'
+        return (
+          <div key={k} className="drv-row">
+            <span>{DRV_LABELS[k] || k}</span>
+            <Meter value={pct} color={color} label={`${DRV_LABELS[k] || k} ${Math.round(pct)}%`} />
+            <span className="num" style={{ color: color.includes('ink') ? 'var(--ink)' : color }}>{Math.round(pct)}%</span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
-function ProductDetail({ product, analysis, aiExplanation, loadingAI, onBack, navigate }) {
+function ProductDetail({ product, analysis, aiExplanation, loadingAI, onBack, onRegenerate, navigate }) {
   const { setAltProduct } = useApp()
   const [tab, setTab] = useState(0)
   const health = analysis?.health || {}
@@ -120,170 +97,164 @@ function ProductDetail({ product, analysis, aiExplanation, loadingAI, onBack, na
   const flags = analysis?.red_flags || []
   const positives = analysis?.positives || []
   const ingFlags = analysis?.ingredient_flags || []
-  const drv = analysis?.drv || {}
-  const ns = product.nutri_score || 'N/A'
-  const nova = product.nova_group
-  const nsColor = NS_COLORS[ns] || '#9CA3AF'
-  const novaColors = { 1: '#22c55e', 2: '#84cc16', 3: '#f59e0b', 4: '#ef4444' }
-  const novaColor = novaColors[nova] || '#6b7280'
-  const verdictCls = { Healthy: 'nl-card-green', Moderate: 'nl-card-amber', Unhealthy: 'nl-card-red' }[health.label] || 'nl-card'
+  const h = HEALTH[health.label] || HEALTH.Moderate
+  const mlOk = ml.label && ml.label !== 'unknown' && !ml.error
+  const verdictColor = h.color
+  const concernCount = flags.length + (product.allergens?.length || 0)
 
   return (
-    <div>
-      <hr />
-      <button className="btn-ghost" style={{ marginBottom: '1rem' }} onClick={onBack}>← Back to results</button>
+    <div className="route">
+      <Button variant="ghost" icon="arrowLeft" iconMotion="back" onClick={onBack} style={{ marginLeft: -12, marginBottom: 12 }}>
+        Back to results
+      </Button>
 
-      {/* Header */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-        <div>
-          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.5rem', fontWeight: 800, color: '#111827', marginBottom: 2 }}>
-            {product.name}
+      <div className="grid g-main" style={{ alignItems: 'stretch' }}>
+        <section className="panel">
+          <div className="faint small">{product.brand || 'Unknown brand'}</div>
+          <h2 className="display" style={{ fontSize: '2.3rem', margin: '4px 0 22px' }}>{product.name}</h2>
+          <div className="row" style={{ gap: 18, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <Ladder value={product.nutri_score} />
+            <Nova group={product.nova_group} />
           </div>
-          <div style={{ fontSize: '0.88rem', color: '#9CA3AF', marginBottom: '1rem' }}>{product.brand}</div>
+          <div className="grid g-2 mt-md small" style={{ gap: 12 }}>
+            {analysis?.nutri_score_description && <p className="muted">{analysis.nutri_score_description}</p>}
+            {analysis?.nova_description && <p style={{ color: NOVA_COLORS[product.nova_group] || 'var(--ink-2)' }}>{analysis.nova_description}</p>}
+          </div>
+        </section>
 
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* NS badge */}
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ background: nsColor, color: '#fff', width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.1rem', marginBottom: 3 }}>
-                {ns}
+        <section className="panel verdict" style={{ borderColor: verdictColor, borderWidth: 2 }}>
+          <Ring value={health.score} color={verdictColor}>
+            <div>
+              <div className="num"><CountUp value={health.score} /></div>
+              <small>out of 100</small>
+            </div>
+          </Ring>
+          <div style={{ minWidth: 0 }}>
+            <div className="small faint">Overall verdict</div>
+            <div className="display verdict-word" style={{ color: verdictColor }}>{health.label || 'Not graded'}</div>
+            {mlOk ? (
+              <div className="small muted" style={{ marginTop: 6 }}>
+                ML model says <b style={{ textTransform: 'capitalize' }}>{ml.label}</b> with {ml.confidence}% confidence.
               </div>
-              <div style={{ fontSize: '0.68rem', color: '#9CA3AF', fontWeight: 500 }}>Nutri-Score</div>
-            </div>
-            {/* NOVA badge */}
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ background: novaColor, color: '#fff', width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.1rem', marginBottom: 3 }}>
-                {nova || '?'}
+            ) : (
+              <div className="tiny faint" style={{ marginTop: 6 }}>
+                The ML model didn't run. Retrain it under How it works.
               </div>
-              <div style={{ fontSize: '0.68rem', color: '#9CA3AF', fontWeight: 500 }}>NOVA</div>
-            </div>
-            <div style={{ fontSize: '0.78rem', color: '#6B7280', maxWidth: 220, lineHeight: 1.5 }}>
-              {analysis?.nutri_score_description}<br />
-              <span style={{ color: novaColor }}>{analysis?.nova_description}</span>
-            </div>
+            )}
           </div>
-        </div>
-
-        {/* Verdict */}
-        <div className={`${verdictCls}`} style={{ borderRadius: 16, padding: '1.2rem', textAlign: 'center' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 6 }}>{health.emoji}</div>
-          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.3rem', fontWeight: 800, color: health.color }}>
-            {health.label}
-          </div>
-          <div style={{ fontSize: '0.78rem', color: '#6B7280', marginTop: 4 }}>Score: {health.score}/100</div>
-          {ml.label && (
-            <div style={{ marginTop: 10, fontSize: '0.78rem', color: '#374151' }}>
-              ML: <b style={{ color: ml.color }}>{ml.label?.charAt(0).toUpperCase() + ml.label?.slice(1)}</b> &nbsp;·&nbsp; {ml.confidence}% confidence
+          {mlOk && ml.probabilities && Object.keys(ml.probabilities).length > 0 && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <SplitBar parts={[
+                { label: 'Healthy', value: Math.round(ml.probabilities.healthy || 0), color: 'var(--ns-a)' },
+                { label: 'Moderate', value: Math.round(ml.probabilities.moderate || 0), color: 'var(--ns-c)' },
+                { label: 'Unhealthy', value: Math.round(ml.probabilities.unhealthy || 0), color: 'var(--ns-e)' },
+              ]} />
             </div>
           )}
-          {/* ML probability bars */}
-          {ml.probabilities && (
-            <div style={{ marginTop: 8 }}>
-              {[['healthy', '#22C55E'], ['moderate', '#F59E0B'], ['unhealthy', '#EF4444']].map(([cat, c]) => (
-                <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '4px 0' }}>
-                  <div style={{ flex: 1, background: '#F3F4F6', borderRadius: 3, height: 6 }}>
-                    <div style={{ background: c, width: `${ml.probabilities[cat] || 0}%`, height: '100%', borderRadius: 3 }} />
+        </section>
+      </div>
+
+      <div className="mt-lg">
+        <Tabs
+          label="Product details"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { label: 'Nutrition', icon: 'label' },
+            { label: 'Concerns', icon: 'alert', count: concernCount },
+            { label: 'Ingredients', icon: 'leaf' },
+            { label: 'AI explanation', icon: 'chat' },
+          ]}
+        />
+
+        <div className="tab-panel" key={tab}>
+          {tab === 0 && (
+            <div className="grid g-2" style={{ gap: 28, alignItems: 'start' }}>
+              <NutritionFacts product={product} />
+              <DailyValues drv={analysis?.drv} />
+            </div>
+          )}
+
+          {tab === 1 && (
+            <div className="stack">
+              <div className="grid g-2" style={{ alignItems: 'start' }}>
+                <div>
+                  <h3 className="h3 mb-md">What to watch</h3>
+                  <div className="enter-list">
+                    {flags.length > 0
+                      ? flags.map((f, i) => <Note key={i} tone={f.level === 'high' ? 'bad' : 'warn'}>{clean(f.message)}</Note>)
+                      : <Note tone="good">No major concerns found.</Note>}
                   </div>
-                  <span style={{ fontSize: '0.7rem', color: c, width: 60 }}>{cat.charAt(0).toUpperCase() + cat.slice(1)} {(ml.probabilities[cat] || 0).toFixed(0)}%</span>
                 </div>
-              ))}
+                <div>
+                  <h3 className="h3 mb-md">What's good</h3>
+                  <div className="enter-list">
+                    {positives.length > 0
+                      ? positives.map((p, i) => <Note key={i} tone="good">{clean(p.message)}</Note>)
+                      : <Note tone="info">Not much on the plus side nutritionally.</Note>}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h3 className="h3 mb-md">Allergens</h3>
+                {product.allergens?.length > 0
+                  ? <div className="row-wrap">{product.allergens.map(a => <Badge key={a} label={a} color="red"><Icon name="alert" size={13} stroke={2.2} /></Badge>)}</div>
+                  : <Note tone="good">No major allergens listed in the product data.</Note>}
+              </div>
+            </div>
+          )}
+
+          {tab === 2 && (
+            <div className="grid g-main" style={{ alignItems: 'start' }}>
+              <section className="panel">
+                <h3 className="h3" style={{ marginBottom: 10 }}>Ingredient list</h3>
+                {product.ingredients_text
+                  ? <p className="muted" style={{ lineHeight: 1.75 }}>{product.ingredients_text}</p>
+                  : <p className="faint">This product has no ingredient text on record.</p>}
+              </section>
+              <div>
+                <h3 className="h3 mb-md">Flagged additives</h3>
+                <div className="enter-list">
+                  {ingFlags.length > 0
+                    ? ingFlags.map((f, i) => (
+                        <Note key={i} tone={f.severity === 'danger' ? 'bad' : f.severity === 'warn' ? 'warn' : 'info'}>
+                          <b>{f.ingredient}</b>: {clean(f.message)}
+                        </Note>
+                      ))
+                    : <Note tone="good">No concerning additives detected.</Note>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab === 3 && (
+            <div className="grid g-main" style={{ alignItems: 'start' }}>
+              <section className="panel">
+                <div className="between" style={{ marginBottom: 14 }}>
+                  <h3 className="h3">In plain English</h3>
+                  <Badge label="Gemini + nutrition knowledge base" color="gray" />
+                </div>
+                {loadingAI
+                  ? <Loader inline text="Reading the label…" />
+                  : aiExplanation
+                    ? <div className="bubble" style={{ padding: 0 }}><ReactMarkdown>{aiExplanation}</ReactMarkdown></div>
+                    : <p className="faint">No explanation yet. Try generating one again.</p>}
+                <div className="row-wrap mt-md">
+                  <Button size="sm" icon="refresh" iconMotion="spin" onClick={onRegenerate} loading={loadingAI}>Regenerate</Button>
+                  <Button size="sm" icon="chat" onClick={() => navigate('/chat')}>Ask a follow-up</Button>
+                </div>
+              </section>
+              <section className="panel panel-sage">
+                <h3 className="h3" style={{ marginBottom: 6 }}>Want something healthier?</h3>
+                <p className="muted small" style={{ marginBottom: 16 }}>See three alternatives in the same category, compared side by side.</p>
+                <Button variant="primary" block iconRight="arrowRight" onClick={() => { setAltProduct(product); navigate('/alternatives') }}>
+                  Find healthier swaps
+                </Button>
+              </section>
             </div>
           )}
         </div>
       </div>
-
-      {/* Tabs */}
-      <div className="tabs">
-        {['📊 Nutrition Facts', '⚠️ Flags & Allergens', '🧪 Ingredients', '🤖 AI Analysis'].map((t, i) => (
-          <button key={i} className={`tab-btn${tab === i ? ' active' : ''}`} onClick={() => setTab(i)}>{t}</button>
-        ))}
-      </div>
-
-      {/* Tab 0: Nutrition */}
-      {tab === 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-          <div><NutritionTable product={product} /></div>
-          <div><DRVChart drv={drv} /></div>
-        </div>
-      )}
-
-      {/* Tab 1: Flags */}
-      {tab === 1 && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-            <div>
-              <h4 style={{ marginBottom: '0.75rem' }}>🚨 Concerns</h4>
-              {flags.length > 0
-                ? flags.map((f, i) => (
-                    <div key={i} className={f.level === 'high' ? 'danger-box' : 'warn-box'}>{f.message}</div>
-                  ))
-                : <div className="ok-box">No major concerns detected.</div>
-              }
-            </div>
-            <div>
-              <h4 style={{ marginBottom: '0.75rem' }}>✅ Positives</h4>
-              {positives.length > 0
-                ? positives.map((p, i) => <div key={i} className="ok-box">{p.message}</div>)
-                : <div className="info-box">Limited positive nutritional factors noted.</div>
-              }
-            </div>
-          </div>
-          <h4 style={{ marginBottom: '0.75rem' }}>🥜 Allergens</h4>
-          {product.allergens?.length > 0
-            ? <div className="nl-card nl-card-red">{product.allergens.map(a => <span key={a} className="badge badge-red">⚠ {a}</span>)}</div>
-            : <div className="ok-box">No major allergens detected in product data.</div>
-          }
-        </div>
-      )}
-
-      {/* Tab 2: Ingredients */}
-      {tab === 2 && (
-        <div>
-          {product.ingredients_text
-            ? <div className="nl-card" style={{ fontSize: '0.85rem', color: '#6B7280', lineHeight: 1.8 }}>{product.ingredients_text}</div>
-            : <div className="info-box">No ingredient text available.</div>
-          }
-          {ingFlags.length > 0 && (
-            <div>
-              <h4 style={{ marginBottom: '0.75rem' }}>⚠️ Flagged Ingredients</h4>
-              {ingFlags.map((f, i) => (
-                <div key={i} className={f.severity === 'danger' ? 'danger-box' : f.severity === 'warn' ? 'warn-box' : 'info-box'}>
-                  <b>{f.ingredient}</b> — {f.message}
-                </div>
-              ))}
-            </div>
-          )}
-          {ingFlags.length === 0 && product.ingredients_text && (
-            <div className="ok-box">No major concerning additives detected.</div>
-          )}
-        </div>
-      )}
-
-      {/* Tab 3: AI Analysis */}
-      {tab === 3 && (
-        <div>
-          <h4 style={{ marginBottom: '0.75rem' }}>🤖 AI Health Explanation</h4>
-          <div className="info-box">Powered by Google Gemini 2.0 Flash + RAG · Falls back to rule-based engine without an API key.</div>
-          {loadingAI
-            ? <Loader text="Generating AI explanation…" />
-            : aiExplanation && (
-                <div className="nl-card nl-card-green" style={{ fontSize: '0.88rem', lineHeight: 1.8, color: '#374151', marginTop: '0.75rem' }}>
-                  {aiExplanation}
-                </div>
-              )
-          }
-          <div style={{ display: 'flex', gap: 8, marginTop: '1rem' }}>
-            <button className="btn" onClick={() => window.location.reload()}>🔄 Regenerate</button>
-            <button className="btn" onClick={() => navigate('/chat')}>💬 Ask follow-up questions</button>
-          </div>
-          <hr />
-          <button
-            className="btn-primary btn-full"
-            onClick={() => { setAltProduct(product); navigate('/alternatives') }}
-          >
-            ↔️ Find Healthier Alternatives →
-          </button>
-        </div>
-      )}
     </div>
   )
 }
@@ -300,17 +271,15 @@ export default function Scans() {
   const [aiExplanation, setAiExplanation] = useState(null)
   const [loadingAI, setLoadingAI] = useState(false)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(null)
 
-  // Image upload state
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState(null)
   const fileInputRef = useRef(null)
 
-  // Run search when query changes
   useEffect(() => {
-    if (!query) return
-    if (selectedProduct) return
+    if (!query || selectedProduct) return
     setLoadingSearch(true)
     fetch(`/api/search?q=${encodeURIComponent(query)}&page_size=6`)
       .then(r => r.json())
@@ -319,7 +288,19 @@ export default function Scans() {
       .finally(() => setLoadingSearch(false))
   }, [query])
 
-  // Analyze selected product
+  function fetchExplanation(product) {
+    setLoadingAI(true)
+    fetch('/api/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product }),
+    })
+      .then(r => r.json())
+      .then(d => setAiExplanation(d.explanation))
+      .catch(() => {})
+      .finally(() => setLoadingAI(false))
+  }
+
   useEffect(() => {
     if (!selectedProduct) { setAnalysis(null); setAiExplanation(null); return }
     setLoadingAnalysis(true)
@@ -329,19 +310,10 @@ export default function Scans() {
       body: JSON.stringify({ product: selectedProduct }),
     })
       .then(r => r.json())
-      .then(d => { setAnalysis(d); setLoadingAnalysis(false) })
-      .catch(() => setLoadingAnalysis(false))
-
-    // Fetch AI explanation
-    setLoadingAI(true)
-    fetch('/api/explain', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product: selectedProduct }),
-    })
-      .then(r => r.json())
-      .then(d => { setAiExplanation(d.explanation); setLoadingAI(false) })
-      .catch(() => setLoadingAI(false))
+      .then(d => setAnalysis(d))
+      .catch(() => {})
+      .finally(() => setLoadingAnalysis(false))
+    fetchExplanation(selectedProduct)
   }, [selectedProduct])
 
   function handleSearch(e) {
@@ -351,10 +323,12 @@ export default function Scans() {
   }
 
   function handleDemoClick(key) {
+    setDemoLoading(key)
     fetch(`/api/demo/${key}`)
       .then(r => r.json())
       .then(p => { setSelectedProduct(p); setAnalysis(null); setAiExplanation(null) })
       .catch(() => {})
+      .finally(() => setDemoLoading(null))
   }
 
   function handleSelectProduct(p) {
@@ -369,7 +343,7 @@ export default function Scans() {
     setAiExplanation(null)
   }
 
-  // ── Image Upload Handlers ─────────────────────────────────────────────────
+  // ── Image upload ────────────────────────────────────────────────────────────
   function handleFileDrop(e) {
     e.preventDefault()
     setDragOver(false)
@@ -377,193 +351,135 @@ export default function Scans() {
     if (file) uploadImage(file)
   }
 
-  function handleFileSelect(e) {
-    const file = e.target.files?.[0]
-    if (file) uploadImage(file)
-  }
-
-  function handleDragOver(e) {
-    e.preventDefault()
-    setDragOver(true)
-  }
-
-  function handleDragLeave(e) {
-    e.preventDefault()
-    setDragOver(false)
-  }
-
   function uploadImage(file) {
-    if (!file.type.startsWith('image/')) {
-      setUploadError('Please upload an image file (JPEG, PNG, etc.)')
-      return
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('Image too large. Maximum size is 10MB.')
-      return
-    }
+    if (!file.type.startsWith('image/')) { setUploadError('That file isn\'t an image. Upload a JPEG or PNG of the label.'); return }
+    if (file.size > 10 * 1024 * 1024) { setUploadError('That image is over 10 MB. Crop it to the label and try again.'); return }
 
     setUploading(true)
     setUploadError(null)
-
     const formData = new FormData()
     formData.append('file', file)
     formData.append('image', file)
 
-    fetch('/api/upload-label', {
-      method: 'POST',
-      body: formData,
-    })
+    fetch('/api/upload-label', { method: 'POST', body: formData })
       .then(r => r.json())
       .then(d => {
-        if (d.error) {
-          setUploadError(d.error)
-        } else if (d.detail) {
-          setUploadError(typeof d.detail === 'string' ? d.detail : 'Upload error: invalid field.')
-        } else if (d.product) {
-          setSelectedProduct(d.product)
-          setAnalysis(null)
-          setAiExplanation(null)
-        } else {
-          setUploadError('Could not extract product info from this image.')
-        }
-        setUploading(false)
+        if (d.error) setUploadError(d.error)
+        else if (d.detail) setUploadError(typeof d.detail === 'string' ? d.detail : 'The server rejected the upload.')
+        else if (d.product) { setSelectedProduct(d.product); setAnalysis(null); setAiExplanation(null) }
+        else setUploadError('No nutrition table found in that photo. Try a sharper, straight-on shot of the label.')
       })
-      .catch(() => {
-        setUploadError('Upload failed. Please check your connection.')
-        setUploading(false)
-      })
+      .catch(() => setUploadError('Upload failed. Check that the NutriLens server is running on port 8000.'))
+      .finally(() => setUploading(false))
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <div className="page-title">My Scans</div>
-          <div className="page-sub">Search a food product by name, barcode, or upload a nutrition label image.</div>
-        </div>
-      </div>
-
-      {/* Search + Upload Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-        {/* Text Search */}
-        <div>
-          <form onSubmit={handleSearch} style={{ display: 'grid', gridTemplateColumns: '4fr 1fr', gap: '0.5rem' }}>
-            <input
-              className="input-field"
-              placeholder="Search product name or barcode…"
-              value={inputVal}
-              onChange={e => setInputVal(e.target.value)}
-            />
-            <button type="submit" className="btn-primary">Search</button>
-          </form>
-        </div>
-
-        {/* Image Upload Zone */}
-        <div
-          onDrop={handleFileDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragOver ? '#1B6B3A' : '#D1D5DB'}`,
-            borderRadius: 12,
-            padding: '0.6rem 1rem',
-            textAlign: 'center',
-            cursor: 'pointer',
-            background: dragOver ? '#F0FDF4' : '#FAFAFA',
-            transition: 'all 0.2s',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.5rem',
-            minHeight: 46,
-          }}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-          />
-          {uploading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="spinner" style={{ width: 20, height: 20 }} />
-              <span style={{ fontSize: '0.82rem', color: '#6B7280' }}>Analyzing label…</span>
-            </div>
-          ) : (
-            <>
-              <span style={{ fontSize: '1.2rem' }}>📷</span>
-              <span style={{ fontSize: '0.82rem', color: '#6B7280' }}>
-                Drop label image or <span style={{ color: '#1B6B3A', fontWeight: 600 }}>click to upload</span>
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {uploadError && (
-        <div className="danger-box" style={{ marginBottom: '0.75rem' }}>{uploadError}</div>
-      )}
-
-      {/* Demo buttons */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        {DEMO_BUTTONS.map(([label, key], i) => (
-          <button key={i} className="btn" style={{ fontSize: '0.78rem', padding: '0.4rem 0.5rem' }} onClick={() => handleDemoClick(key)}>{label}</button>
-        ))}
-      </div>
-
-      {/* Loading */}
-      {loadingSearch && <Loader text={`Searching for '${query}'…`} />}
-
-      {/* Results */}
-      {!loadingSearch && !selectedProduct && results.length > 0 && (
-        <div>
-          <p style={{ fontSize: '0.88rem', color: '#6B7280', marginBottom: '0.75rem' }}>
-            <b>{results.length} results</b> — click a product to analyze
-          </p>
-          <div className="grid-3">
-            {results.map((p, i) => {
-              const nsColor = NS_COLORS[p.nutri_score] || '#9CA3AF'
-              return (
-                <div key={i}>
-                  <div className="nl-card" style={{ marginBottom: '0.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {(p.name || 'Unknown').slice(0, 40)}
-                        </div>
-                        <div style={{ fontSize: '0.77rem', color: '#9CA3AF', marginTop: 1 }}>{(p.brand || '').slice(0, 30)}</div>
-                      </div>
-                      <span style={{ background: nsColor, color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: 20, fontSize: '0.78rem', flexShrink: 0, marginLeft: 8 }}>
-                        {p.nutri_score || 'N/A'}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: '0.75rem', color: '#6B7280' }}>
-                      {(p.categories || []).slice(0, 2).join(', ') || 'Food product'}
-                    </div>
-                  </div>
-                  <button className="btn btn-full" onClick={() => handleSelectProduct(p)}>Analyze →</button>
-                </div>
-              )
-            })}
+    <>
+      {!selectedProduct && (
+        <header className="page-head">
+          <div>
+            <h1 className="display h1">Scan a product</h1>
+            <p>Search by name or barcode, or photograph the nutrition label on the pack.</p>
           </div>
-        </div>
+        </header>
       )}
 
-      {/* Product Detail */}
+      {!selectedProduct && (
+        <>
+          <div className="grid g-2" style={{ alignItems: 'stretch' }}>
+            <form onSubmit={handleSearch} className="search-xl" role="search">
+              <div className="input-wrap">
+                <Icon name="search" size={19} />
+                <input
+                  className="input"
+                  placeholder="Product name or barcode"
+                  value={inputVal}
+                  onChange={e => setInputVal(e.target.value)}
+                  aria-label="Product name or barcode"
+                />
+              </div>
+              <Button type="submit" variant="primary" loading={loadingSearch}>Search</Button>
+            </form>
+
+            <button
+              type="button"
+              className={`dropzone ${dragOver ? 'over' : ''} ${uploading ? 'busy' : ''}`}
+              onDrop={handleFileDrop}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={e => { e.preventDefault(); setDragOver(false) }}
+              onClick={() => !uploading && fileInputRef.current?.click()}
+              aria-label="Upload a photo of the nutrition label"
+            >
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={e => e.target.files?.[0] && uploadImage(e.target.files[0])} hidden />
+              <span className="dropzone-icon"><Icon name={uploading ? 'lens' : 'camera'} size={20} /></span>
+              <span className="small">
+                {uploading
+                  ? <><b>Reading the label…</b><br /><span className="faint">Extracting nutrients from your photo</span></>
+                  : dragOver
+                    ? <b>Drop to scan</b>
+                    : <><b>Upload a label photo</b><br /><span className="faint">or drag it here, up to 10 MB</span></>}
+              </span>
+            </button>
+          </div>
+
+          {uploadError && <div className="mt-md"><Note tone="bad">{uploadError}</Note></div>}
+
+          <div className="row-wrap mt-md">
+            <span className="small faint" style={{ alignSelf: 'center', marginRight: 4 }}>Try one:</span>
+            {DEMO_FOODS.map(d => (
+              <ProductChip key={d.key} label={d.label} loading={demoLoading === d.key} onClick={() => handleDemoClick(d.key)} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {loadingSearch && <Loader text={`Searching for “${query}”…`} />}
+
+      {!loadingSearch && !selectedProduct && query && results.length === 0 && (
+        <div className="mt-lg"><Note tone="info">Nothing matched “{query}”. Try the brand name, or type the barcode printed under the stripes.</Note></div>
+      )}
+
+      {!loadingSearch && !selectedProduct && results.length > 0 && (
+        <>
+          <div className="section-title">
+            <h2 className="h3">{results.length} matches for “{query}”</h2>
+            <span className="small faint">Pick one to analyse</span>
+          </div>
+          <div className="grid g-3 enter-list">
+            {results.map((p, i) => (
+              <button key={i} className="pcard" onClick={() => handleSelectProduct(p)}>
+                <div className="pcard-top">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="pcard-name">{p.name || 'Unknown product'}</div>
+                    <div className="pcard-meta">{p.brand || 'Unknown brand'}</div>
+                  </div>
+                  <Grade value={p.nutri_score} />
+                </div>
+                <div className="pcard-foot">
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {(p.categories || []).slice(0, 2).join(', ') || 'Food product'}
+                  </span>
+                  <span className="pcard-go">Analyse <Icon name="arrowRight" size={15} /></span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {selectedProduct && (
         loadingAnalysis
-          ? <Loader text="Analyzing product…" />
+          ? <Loader text={`Analysing ${selectedProduct.name || 'product'}…`} />
           : <ProductDetail
               product={selectedProduct}
               analysis={analysis}
               aiExplanation={aiExplanation}
               loadingAI={loadingAI}
               onBack={handleBack}
+              onRegenerate={() => fetchExplanation(selectedProduct)}
               navigate={navigate}
             />
       )}
-    </div>
+    </>
   )
 }

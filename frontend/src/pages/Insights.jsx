@@ -1,31 +1,33 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
+import Icon from '../components/Icon'
 import Loader from '../components/Loader'
+import { normalizeStats } from '../lib/normalize'
+import { Button, PageHead, Empty, Meter, CountUp, ChartTip, NOVA_COLORS } from '../components/ui'
+
+const fmt = v => (typeof v === 'number' ? v.toFixed(1) : null)
 
 export default function Insights() {
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [hidden, setHidden] = useState({})
 
   useEffect(() => {
     setLoading(true)
     fetch('/api/scans/stats')
       .then(r => r.json())
-      .then(d => { setStats(d); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then(d => setStats(normalizeStats(d)))
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
   if (loading) {
-    return (
-      <div>
-        <div className="page-title">Health Insights</div>
-        <Loader text="Loading your health insights…" />
-      </div>
-    )
+    return (<><PageHead title="Insights" /><Loader text="Crunching your scan history…" /></>)
   }
 
   const totalScans = stats?.total_scans || 0
@@ -33,201 +35,205 @@ export default function Insights() {
   const moderatePct = stats?.moderate_percent || 0
   const unhealthyPct = stats?.unhealthy_percent || 0
 
-  // Empty state
   if (totalScans === 0) {
     return (
-      <div>
-        <div className="page-title">Health Insights</div>
-        <div className="page-sub">Visual breakdown of your nutritional patterns over time.</div>
-        <div className="nl-card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
-          <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📈</div>
-          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '1.2rem', color: '#111827', marginBottom: '0.5rem' }}>
-            No insights yet!
-          </div>
-          <div style={{ fontSize: '0.9rem', color: '#6B7280', marginBottom: '1.5rem', maxWidth: 440, margin: '0 auto 1.5rem auto' }}>
-            Start scanning products to see your nutritional trends, patterns, and health breakdown here.
-          </div>
-          <button className="btn-primary" onClick={() => navigate('/scans')}>📷 Scan Your First Product</button>
-        </div>
-      </div>
+      <>
+        <PageHead title="Insights" />
+        <Empty
+          icon="insights"
+          title="Nothing to chart yet"
+          actions={<Button variant="primary" icon="camera" onClick={() => navigate('/scans')}>Scan your first product</Button>}
+        >
+          Scan a few products and this page fills in with your sugar, fibre and protein trends, how processed your food is, and the red flags that come up most.
+        </Empty>
+      </>
     )
   }
 
-  // Build data from stats
   const weeklyTrend = (stats?.weekly || []).map(w => ({
     day: w.day || w.label || '',
     sugar: w.sugar || w.avg_sugar || 0,
     fibre: w.fibre || w.fiber || w.avg_fiber || 0,
     protein: w.protein || w.avg_protein || 0,
-    score: w.score || w.count || 0,
   }))
 
   const donutData = [
-    { name: 'Healthy', value: healthyPct, color: '#1B6B3A' },
-    { name: 'Moderate', value: moderatePct, color: '#F59E0B' },
-    { name: 'Unhealthy', value: unhealthyPct, color: '#EF4444' },
+    { name: 'Healthy', value: healthyPct, color: '#038141' },
+    { name: 'Moderate', value: moderatePct, color: '#FECB02' },
+    { name: 'Unhealthy', value: unhealthyPct, color: '#E63E11' },
   ].filter(d => d.value > 0)
 
   const novaData = stats?.nova_breakdown || stats?.nova || [
-    { n: 1, label: 'Unprocessed', pct: 0, color: '#1B6B3A' },
-    { n: 2, label: 'Culinary', pct: 0, color: '#74B816' },
-    { n: 3, label: 'Processed', pct: 0, color: '#F59E0B' },
-    { n: 4, label: 'Ultra-Processed', pct: 0, color: '#EF4444' },
+    { n: 1, label: 'Unprocessed', pct: 0 },
+    { n: 2, label: 'Culinary ingredients', pct: 0 },
+    { n: 3, label: 'Processed', pct: 0 },
+    { n: 4, label: 'Ultra-processed', pct: 0 },
   ]
 
-  const flagsData = stats?.red_flags || stats?.top_flags || [
-    { label: 'High Sugar', count: 0, color: '#EF4444' },
-    { label: 'High Sodium', count: 0, color: '#F59E0B' },
-    { label: 'Ultra-Processed', count: 0, color: '#F97316' },
-    { label: 'High Sat. Fat', count: 0, color: '#DC2626' },
-    { label: 'Low Fibre', count: 0, color: '#6B7280' },
-  ]
+  const rawFlags = stats?.red_flags || stats?.top_flags
+  const flagsData = (rawFlags || []).filter(f => f.count > 0)
   const maxFlagCount = Math.max(...flagsData.map(f => f.count || 0), 1)
 
-  // KPI cards from stats
-  const avgSugar = stats?.avg_sugar || stats?.averages?.sugar || '—'
-  const avgFiber = stats?.avg_fiber || stats?.averages?.fiber || '—'
-  const avgSalt = stats?.avg_salt || stats?.averages?.salt || '—'
-  const avgProtein = stats?.avg_protein || stats?.averages?.protein || '—'
-
+  const avg = k => stats?.[`avg_${k}`] ?? stats?.averages?.[k]
   const KPIS = [
-    { icon: '🥗', label: 'Avg Fibre', val: typeof avgFiber === 'number' ? `${avgFiber.toFixed(1)}g` : avgFiber, color: '#1B6B3A' },
-    { icon: '🍬', label: 'Avg Sugar', val: typeof avgSugar === 'number' ? `${avgSugar.toFixed(1)}g` : avgSugar, color: '#F59E0B' },
-    { icon: '🧂', label: 'Avg Salt', val: typeof avgSalt === 'number' ? `${avgSalt.toFixed(1)}g` : avgSalt, color: '#EF4444' },
-    { icon: '💪', label: 'Avg Protein', val: typeof avgProtein === 'number' ? `${avgProtein.toFixed(1)}g` : avgProtein, color: '#3B82F6' },
+    { label: 'Fibre', val: avg('fiber'), icon: 'grain', color: 'var(--ns-a)', good: true },
+    { label: 'Protein', val: avg('protein'), icon: 'bolt', color: 'var(--ink)', good: true },
+    { label: 'Sugar', val: avg('sugar'), icon: 'droplet', color: 'var(--ns-d)' },
+    { label: 'Salt', val: avg('salt'), icon: 'alert', color: 'var(--ns-e)' },
   ]
 
-  return (
-    <div>
-      <div className="page-title">Health Insights</div>
-      <div className="page-sub">Visual breakdown of your nutritional patterns over time — based on {totalScans} scans.</div>
+  const LINES = [
+    { key: 'sugar', name: 'Sugar', color: '#EE8100' },
+    { key: 'fibre', name: 'Fibre', color: '#038141' },
+    { key: 'protein', name: 'Protein', color: '#16291E' },
+  ]
 
-      {/* KPI Cards */}
-      <div className="grid-4" style={{ marginBottom: '1.5rem' }}>
-        {KPIS.map(({ icon, label, val, color }) => (
-          <div key={label} className="nl-card" style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '1.5rem', marginBottom: 6 }}>{icon}</div>
-            <div style={{ fontSize: '0.75rem', color: '#9CA3AF', fontWeight: 500 }}>{label}</div>
-            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.6rem', fontWeight: 800, color, margin: '4px 0' }}>{val}</div>
-          </div>
-        ))}
+  const verdict = healthyPct >= 70
+    ? 'Most of what you buy is a good choice. Keep checking new products before they become habits.'
+    : healthyPct < 50
+      ? 'Fewer than half your products came out healthy. Replacing packaged snacks with whole foods would move this fastest.'
+      : "You're on the right track. A couple of swaps in your regular snacks would push you past 70% healthy."
+
+  const summary = (
+    <section className="panel panel-ink row" style={{ gap: 18, alignItems: 'flex-start' }}>
+      <Icon name="leaf" size={26} style={{ color: 'var(--ns-b)', flexShrink: 0 }} />
+      <div>
+        <h2 className="h3" style={{ color: '#fff', marginBottom: 6 }}>
+          {healthyPct}% healthy, {moderatePct}% moderate, {unhealthyPct}% unhealthy
+        </h2>
+        <p className="muted" style={{ maxWidth: '68ch' }}>{verdict}</p>
+        <div className="row-wrap mt-md">
+          <Button variant="on-ink" size="sm" icon="swap" onClick={() => navigate('/alternatives')}>Find swaps</Button>
+          <Button variant="on-ink" size="sm" icon="plan" onClick={() => navigate('/diet-plan')}>Build a diet plan</Button>
+        </div>
       </div>
+    </section>
+  )
 
-      {/* Row 2: Trend + Donut */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1rem', marginBottom: '1rem' }}>
-        <div className="nl-card">
-          <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#111827', marginBottom: '0.5rem' }}>Weekly Nutrition Trend</div>
+  return (
+    <>
+      <PageHead title="Insights">
+        Patterns across all {totalScans} products you've scanned, averaged per 100 g.
+      </PageHead>
+
+      <section className="panel">
+        <div className="stats">
+          {KPIS.map(k => (
+            <div key={k.label}>
+              <div className="stat-k"><Icon name={k.icon} size={16} style={{ color: k.color }} />Average {k.label.toLowerCase()}</div>
+              <div className="stat-v num">
+                {fmt(k.val) != null ? <CountUp value={k.val} decimals={1} /> : '—'}<small>g</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid g-main mt-md">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2 className="h3">Weekly nutrient trend</h2>
+              <p>Grams per 100 g, averaged by day</p>
+            </div>
+            <div className="row-wrap" role="group" aria-label="Show lines">
+              {LINES.map(l => (
+                <button key={l.key} type="button" aria-pressed={!hidden[l.key]}
+                  className={`chip chip-plain ${hidden[l.key] ? '' : 'selected'}`}
+                  style={{ height: 30, fontSize: '0.8rem', ...(hidden[l.key] ? {} : { background: l.color, borderColor: l.color }) }}
+                  onClick={() => setHidden(h => ({ ...h, [l.key]: !h[l.key] }))}>
+                  {l.name}
+                </button>
+              ))}
+            </div>
+          </div>
           {weeklyTrend.length > 0 ? (
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={weeklyTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 10, color: '#6B7280' }} />
-                <Line type="monotone" dataKey="sugar" name="Sugar (g)" stroke="#EF4444" strokeWidth={2.5} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="fibre" name="Fibre (g)" stroke="#1B6B3A" strokeWidth={2.5} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="protein" name="Protein (g)" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 4 }} />
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={weeklyTrend} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                <CartesianGrid stroke="#E7EDE4" vertical={false} />
+                <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#7B887E' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#7B887E' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTip unit=" g" />} cursor={{ stroke: '#C5D0C1' }} />
+                {LINES.filter(l => !hidden[l.key]).map(l => (
+                  <Line key={l.key} type="monotone" dataKey={l.key} name={l.name} stroke={l.color} strokeWidth={2.5}
+                    dot={{ r: 3.5, strokeWidth: 0, fill: l.color }} activeDot={{ r: 6, strokeWidth: 3, stroke: '#fff' }} animationDuration={900} />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: '0.85rem' }}>
-              Weekly trend data will appear after more scans
-            </div>
+            <p className="faint small" style={{ height: 250, display: 'grid', placeItems: 'center' }}>Scan on a few more days to see a trend.</p>
           )}
-        </div>
+        </section>
 
-        <div className="nl-card">
-          <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#111827', marginBottom: '0.5rem' }}>Scan Health Distribution</div>
-          {donutData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
+        <section className="panel">
+          <h2 className="h3" style={{ marginBottom: 8 }}>How healthy your scans are</h2>
+          <div style={{ position: 'relative' }}>
+            <ResponsiveContainer width="100%" height={210}>
               <PieChart>
-                <Pie
-                  data={donutData} cx="50%" cy="50%" innerRadius={55} outerRadius={80}
-                  paddingAngle={3} dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  labelLine={{ strokeWidth: 1 }}
-                >
+                <Pie data={donutData} cx="50%" cy="50%" innerRadius={64} outerRadius={92} paddingAngle={2} cornerRadius={4}
+                  dataKey="value" stroke="none" animationDuration={900}>
                   {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
                 </Pie>
+                <Tooltip content={<ChartTip unit="%" />} />
               </PieChart>
             </ResponsiveContainer>
-          ) : (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: '0.85rem' }}>
-              No distribution data
+            <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', textAlign: 'center' }}>
+              <div>
+                <div className="num" style={{ fontSize: '2rem', lineHeight: 1 }}><CountUp value={totalScans} /></div>
+                <div className="tiny faint">products</div>
+              </div>
             </div>
-          )}
-          <div style={{ textAlign: 'center', marginTop: 4, fontSize: '0.82rem', color: '#6B7280' }}>
-            {totalScans} total scans
           </div>
-        </div>
+          <div className="legend" style={{ justifyContent: 'center' }}>
+            {donutData.map(d => <span key={d.name}><i style={{ background: d.color }} />{d.name} <b>{d.value}%</b></span>)}
+          </div>
+        </section>
       </div>
 
-      {/* Row 3: Red flags + NOVA */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1rem', marginBottom: '1rem' }}>
-        <div className="nl-card">
-          <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#111827', marginBottom: '0.75rem' }}>Most Common Red Flags</div>
-          {flagsData.filter(f => f.count > 0).length > 0 ? (
-            flagsData.filter(f => f.count > 0).map(({ label, count, color }) => {
-              const pct = Math.round((count / maxFlagCount) * 100)
+      <div className="grid g-main mt-md">
+        {rawFlags && <section className="panel">
+          <h2 className="h3" style={{ marginBottom: 18 }}>Red flags that come up most</h2>
+          {flagsData.length > 0 ? (
+            <div className="stack">
+              {flagsData.map(({ label, count }) => (
+                <div key={label} className="drv-row" style={{ gridTemplateColumns: '130px 1fr 36px' }}>
+                  <span className="small">{label}</span>
+                  <Meter value={(count / maxFlagCount) * 100} color="var(--ns-e)" label={`${label}: ${count}`} />
+                  <span className="num" style={{ textAlign: 'right' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="note note-good"><Icon name="check" size={18} /><div>No red flags in anything you've scanned.</div></div>
+          )}
+        </section>}
+
+        <section className="panel">
+          <h2 className="h3" style={{ marginBottom: 18 }}>How processed your food is</h2>
+          <div className="stack">
+            {novaData.map(item => {
+              const n = item.n || item.nova_group
+              const label = item.label || item.name || `NOVA ${n}`
+              const pct = item.pct || item.percent || 0
+              const color = NOVA_COLORS[n] || '#7B887E'
               return (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 160, fontSize: '0.82rem', color: '#374151' }}>{label}</div>
+                <div key={n} className="row" style={{ gap: 12 }}>
+                  <span className="grade sm" style={{ background: color, fontSize: '0.9rem' }}>{n}</span>
                   <div style={{ flex: 1 }}>
-                    <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${pct}%`, background: color }} />
+                    <div className="between small" style={{ marginBottom: 5 }}>
+                      <span>{label}</span><span className="num">{pct}%</span>
                     </div>
+                    <Meter value={pct} color={color} label={`${label} ${pct}%`} />
                   </div>
-                  <div style={{ width: 30, fontSize: '0.8rem', color, fontWeight: 600, textAlign: 'right' }}>{count}</div>
                 </div>
               )
-            })
-          ) : (
-            <div className="ok-box">No red flags detected yet — great job! 🎉</div>
-          )}
-        </div>
-
-        <div className="nl-card">
-          <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#111827', marginBottom: '0.75rem' }}>NOVA Processing Breakdown</div>
-          {novaData.map((item) => {
-            const n = item.n || item.nova_group
-            const label = item.label || item.name || `NOVA ${n}`
-            const pct = item.pct || item.percent || 0
-            const novaColors = { 1: '#1B6B3A', 2: '#74B816', 3: '#F59E0B', 4: '#EF4444' }
-            const color = item.color || novaColors[n] || '#6B7280'
-            return (
-              <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                <div style={{ width: 28, height: 28, borderRadius: 6, background: color, color: '#fff', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{n}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.78rem', color: '#374151', fontWeight: 500 }}>{label}</div>
-                  <div className="progress-bar" style={{ marginTop: 3 }}>
-                    <div className="progress-fill" style={{ width: `${pct}%`, background: color }} />
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.8rem', fontWeight: 600, color }}>{pct}%</div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Progress callout */}
-      <div className="nl-card nl-card-green">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-          <div style={{ fontSize: '1.5rem' }}>📈</div>
-          <div>
-            <div style={{ fontWeight: 700, color: '#111827', marginBottom: 4 }}>Your Health Summary</div>
-            <div style={{ fontSize: '0.85rem', color: '#374151', lineHeight: 1.7 }}>
-              Based on {totalScans} scanned products: <b style={{ color: '#1B6B3A' }}>{healthyPct}%</b> of your food choices are healthy,
-              <b style={{ color: '#F59E0B' }}> {moderatePct}%</b> are moderate, and
-              <b style={{ color: '#EF4444' }}> {unhealthyPct}%</b> need improvement.
-              {healthyPct >= 70 && ' Great job maintaining a healthy diet! Keep it up.'}
-              {healthyPct < 50 && ' Consider replacing processed snacks with whole foods and fresh produce.'}
-              {healthyPct >= 50 && healthyPct < 70 && ' You\'re on the right track. Small changes can make a big difference.'}
-            </div>
+            })}
           </div>
-        </div>
+        </section>
+        {!rawFlags && summary}
       </div>
-    </div>
+
+      {rawFlags && <div className="mt-md">{summary}</div>}
+    </>
   )
 }
