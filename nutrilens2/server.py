@@ -26,7 +26,7 @@ from utils.nutrition import (
     nutri_score_description, nova_description,
 )
 from ml.model import predict, compare_models, train_model
-from rag.ai_engine import generate_explanation, generate_alternatives_suggestion, chat, gemini_model
+from rag.ai_engine import generate_explanation, generate_alternatives_suggestion, chat, gemini_model, generate_content
 from rag.knowledge_base import retrieve
 from db import save_scan, get_recent_scans, get_scan_stats, save_diet_plan, get_latest_diet_plan
 
@@ -243,8 +243,8 @@ IMPORTANT:
 - If label is in a non-English language, translate the product name.
 - Return ONLY the JSON, no markdown fences, no extra text."""
 
-            response = client.models.generate_content(
-                model=gemini_model(),
+            response = generate_content(
+                client,
                 contents=[
                     types.Part.from_bytes(data=contents, mime_type=mime),
                     prompt
@@ -431,8 +431,8 @@ IMPORTANT:
 - Each day should have exactly {req.meals_per_day} meals plus snacks if appropriate.
 - Return ONLY valid JSON, no markdown fences."""
 
-            response = client.models.generate_content(
-                model=gemini_model(),
+            response = generate_content(
+                client,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     max_output_tokens=4000,

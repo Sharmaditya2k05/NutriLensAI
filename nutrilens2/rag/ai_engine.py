@@ -8,6 +8,7 @@ Get a free Gemini API key at: https://aistudio.google.com/apikey
 
 import os
 import re
+import time
 from typing import Optional
 from rag.knowledge_base import build_context, retrieve
 
@@ -16,6 +17,41 @@ def gemini_model() -> str:
     """Model ID to call. gemini-2.0-flash was shut down by Google on 1 June 2026;
     set GEMINI_MODEL in .env to switch models without touching code."""
     return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+
+def gemini_fallback_model() -> str:
+    """Tried when the main model is overloaded, rate-limited or retired."""
+    return os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
+
+
+_RETRYABLE = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "overloaded", "high demand", "timed out", "Timeout")
+
+
+def generate_content(client, **kwargs):
+    """client.models.generate_content with resilience:
+    retry the main model once on overload/rate-limit, then try the fallback model.
+    A 404 (model retired) skips straight to the fallback."""
+    models = [gemini_model()]
+    if gemini_fallback_model() not in models:
+        models.append(gemini_fallback_model())
+    last_error = None
+    for model in models:
+        for attempt in range(2):
+            try:
+                return client.models.generate_content(model=model, **kwargs)
+            except Exception as e:
+                last_error = e
+                msg = str(e)
+                if "404" in msg or "NOT_FOUND" in msg:
+                    print(f"[Gemini] {model} not found, trying next model")
+                    break
+                if any(t in msg for t in _RETRYABLE):
+                    print(f"[Gemini] {model} busy (attempt {attempt + 1}): {msg[:120]}")
+                    if attempt == 0:
+                        time.sleep(1.5)
+                    continue
+                raise
+    raise last_error
 
 try:
     from google import genai
@@ -47,8 +83,8 @@ def _call_gemini(prompt: str) -> Optional[str]:
         return None
     try:
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=gemini_model(),
+        response = generate_content(
+            client,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
@@ -89,8 +125,8 @@ User: {last_user}
 
 Respond as NutriLens AI:"""
 
-        response = client.models.generate_content(
-            model=gemini_model(),
+        response = generate_content(
+            client,
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
