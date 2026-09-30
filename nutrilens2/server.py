@@ -26,7 +26,7 @@ from utils.nutrition import (
     nutri_score_description, nova_description,
 )
 from ml.model import predict, compare_models, train_model
-from rag.ai_engine import generate_explanation, generate_alternatives_suggestion, chat
+from rag.ai_engine import generate_explanation, generate_alternatives_suggestion, chat, gemini_model
 from rag.knowledge_base import retrieve
 from db import save_scan, get_recent_scans, get_scan_stats, save_diet_plan, get_latest_diet_plan
 
@@ -244,7 +244,7 @@ IMPORTANT:
 - Return ONLY the JSON, no markdown fences, no extra text."""
 
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=gemini_model(),
                 contents=[
                     types.Part.from_bytes(data=contents, mime_type=mime),
                     prompt
@@ -432,7 +432,7 @@ IMPORTANT:
 - Return ONLY valid JSON, no markdown fences."""
 
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=gemini_model(),
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     max_output_tokens=4000,

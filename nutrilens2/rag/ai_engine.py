@@ -7,8 +7,15 @@ Get a free Gemini API key at: https://aistudio.google.com/apikey
 """
 
 import os
+import re
 from typing import Optional
 from rag.knowledge_base import build_context, retrieve
+
+
+def gemini_model() -> str:
+    """Model ID to call. gemini-2.0-flash was shut down by Google on 1 June 2026;
+    set GEMINI_MODEL in .env to switch models without touching code."""
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 try:
     from google import genai
@@ -41,7 +48,7 @@ def _call_gemini(prompt: str) -> Optional[str]:
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model=gemini_model(),
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
@@ -83,7 +90,7 @@ User: {last_user}
 Respond as NutriLens AI:"""
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model=gemini_model(),
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
@@ -149,11 +156,23 @@ def _rule_based_chat(query: str, product: Optional[dict]) -> str:
     if docs:
         doc = docs[0]
         paragraphs = [p.strip() for p in doc["content"].strip().split("\n\n") if p.strip()]
-        answer = paragraphs[0] if paragraphs else doc["content"][:300]
+        # Take the intro paragraph plus any list that follows it (so "four main types:" keeps its items),
+        # then stop once the answer is a reasonable length.
+        parts = []
+        for para in paragraphs:
+            is_list_item = re.match(r"^(\d+[.)]|[-*•])\s", para) is not None
+            if parts and not is_list_item and len("\n\n".join(parts)) >= 250:
+                break
+            parts.append(para)
+        answer = "\n\n".join(parts) if parts else doc["content"][:300]
         return (
             f"**{doc['title']}**\n\n{answer}\n\n"
-            "*Add your free Gemini API key to `.env` for full AI answers. "
-            "Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).*"
+            + (
+                "*The AI service didn't respond, so this answer comes from the built-in knowledge base.*"
+                if os.getenv("GEMINI_API_KEY")
+                else "*Add your free Gemini API key to `.env` for full AI answers. "
+                     "Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).*"
+            )
         )
     return (
         "I don't have specific information on that in my knowledge base. "
